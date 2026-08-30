@@ -36,7 +36,6 @@ resource "proxmox_virtual_environment_sdn_vnet" "this" {
 resource "proxmox_virtual_environment_sdn_subnet" "this" {
   count = var.subnet_cidr != null ? 1 : 0
 
-  id      = "${var.vnet_id}-${replace(var.subnet_cidr, "/", "-")}"
   vnet    = proxmox_virtual_environment_sdn_vnet.this.id
   cidr    = var.subnet_cidr
   gateway = var.subnet_gateway

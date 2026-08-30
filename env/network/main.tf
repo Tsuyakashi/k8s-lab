@@ -2,7 +2,7 @@ module "k8s_cp_network" {
   source = "../../mod/sdn-network"
 
   zone_id = "k8scp"
-  vnet_id = "vnetk8scp"
+  vnet_id = "k8svncp"
 
   nodes   = local.node_names
   peers   = local.node_ips
