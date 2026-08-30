@@ -73,14 +73,15 @@ took down the CI runner (see its README, "Two independent root modules, on
 purpose") — the same lesson, applied here upfront instead of after an
 incident.
 
-## Network choice: VXLAN, not a VLAN zone
+## Network choice: EVPN, not a plain VXLAN zone
 
-`mod/sdn-network` uses `sdn_zone_vxlan` rather than `sdn_zone_vlan` —
-VXLAN only needs UDP connectivity between node IPs, not VLAN tagging on
-the physical switch between them. If there's a managed switch with VLAN
-trunking between your Proxmox nodes, `sdn_zone_vlan` might be simpler and
-skip the encapsulation; check `bpg/proxmox`'s `docs/adr` and the Proxmox
-forum for the tradeoffs before switching.
+`mod/sdn-network` uses `sdn_zone_evpn` rather than `sdn_zone_vxlan`. A
+stretched VXLAN zone can't materialize a subnet gateway/SNAT on any node's
+interface — putting the same gateway IP on every node in the L2 segment
+would conflict. EVPN solves this via BGP (FRR, one iBGP mesh over the
+node IPs) plus an explicit exit-node/primary-exit-node concept, so exactly
+one node (`primary_exit_node`) owns the gateway/SNAT for the segment.
+Cost: FRR/BGP must be running on every node in `var.nodes`.
 
 ## Known topology limitation
 

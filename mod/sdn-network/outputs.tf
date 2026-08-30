@@ -5,10 +5,15 @@ output "vnet_id" {
 
 output "zone_id" {
   description = "The SDN zone identifier."
-  value       = proxmox_sdn_zone_vxlan.this.id
+  value       = proxmox_sdn_zone_evpn.this.id
 }
 
 output "subnet_gateway" {
   description = "Gateway IP of the created subnet, if any (null if subnet_cidr was not set)."
   value       = var.subnet_cidr != null ? var.subnet_gateway : null
+}
+
+output "controller_id" {
+  description = "The EVPN controller identifier."
+  value       = proxmox_sdn_controller_evpn.this.id
 }

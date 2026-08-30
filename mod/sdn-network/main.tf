@@ -1,31 +1,41 @@
 /**
  * mod/sdn-network
  *
- * Declares a Proxmox SDN VXLAN zone + VNet (+ optional routed subnet) to be
- * used as an isolated overlay segment for a group of VMs (e.g. a k8s
- * control-plane).
+ * EVPN zone + VNet (+ optional routed subnet with SNAT) — a routable L3
+ * segment spanning multiple physical nodes.
  *
- * VXLAN chosen over a plain VLAN zone because it only requires UDP
- * connectivity between node IPs (the underlay) -- no physical switch VLAN
- * trunking needed. This matters when the physical LAN doesn't guarantee a
- * managed switch tagging the same VLAN between every Proxmox node.
- *
- * Two-step SDN apply (applier + finalizer) is a known provider requirement:
- * SDN changes are staged, then must be explicitly applied cluster-wide.
- * See: https://github.com/bpg/terraform-provider-proxmox/issues/2212
+ * EVPN instead of VXLAN: a stretched VXLAN zone can't materialize a
+ * subnet gateway/SNAT onto any node's interface (would put the same
+ * gateway IP on every node in the L2 segment — a conflict). EVPN solves
+ * this via BGP-learned routes + an explicit exit-node concept, at the
+ * cost of running FRR/BGP (proxmox_sdn_controller_evpn — one iBGP mesh
+ * over var.peers).
  */
 
-resource "proxmox_sdn_zone_vxlan" "this" {
-  id    = var.zone_id
-  nodes = var.nodes
+resource "proxmox_sdn_controller_evpn" "this" {
+  id    = var.controller_id
+  asn   = var.controller_asn
   peers = var.peers
-  mtu   = var.mtu
-  ipam  = "pve"
+}
+
+resource "proxmox_sdn_zone_evpn" "this" {
+  id         = var.zone_id
+  nodes      = var.nodes
+  controller = proxmox_sdn_controller_evpn.this.id
+  vrf_vxlan  = var.vrf_vxlan
+  mtu        = var.mtu
+  ipam       = "pve"
+
+  exit_nodes        = var.exit_nodes
+  primary_exit_node = var.primary_exit_node
+  advertise_subnets = true
+
+  depends_on = [proxmox_sdn_controller_evpn.this]
 }
 
 resource "proxmox_sdn_vnet" "this" {
   id   = var.vnet_id
-  zone = proxmox_sdn_zone_vxlan.this.id
+  zone = proxmox_sdn_zone_evpn.this.id
   tag  = var.vni_tag
 
   depends_on = [proxmox_sdn_applier.finalizer]
@@ -49,13 +59,17 @@ resource "proxmox_sdn_applier" "finalizer" {}
 
 resource "proxmox_sdn_applier" "applier" {
   depends_on = [
+    proxmox_sdn_controller_evpn.this,
+    proxmox_sdn_zone_evpn.this,
     proxmox_sdn_vnet.this,
     proxmox_sdn_subnet.this,
   ]
 
   lifecycle {
     replace_triggered_by = [
+      proxmox_sdn_zone_evpn.this,
       proxmox_sdn_vnet.this,
+      proxmox_sdn_subnet.this,
     ]
   }
 }
