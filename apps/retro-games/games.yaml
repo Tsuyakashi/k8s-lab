@@ -1,0 +1,125 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: retro-games
+---
+# === BOMBERMAN ===
+apiVersion: v1
+kind: Service
+metadata:
+  name: bomberman
+  namespace: retro-games
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8001
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: bomberman
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bomberman-deployment
+  namespace: retro-games
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bomberman
+  template:
+    metadata:
+      labels:
+        app: bomberman
+    spec:
+      containers:
+        - name: bomberman
+          image: "tsuyakashi/mycool:bomberman"
+          imagePullPolicy: Always
+          resources:
+            limits: { memory: 256Mi, cpu: "500m" }
+            requests: { memory: 64Mi, cpu: "100m" }
+          ports:
+            - containerPort: 8000
+---
+# === PACMAN ===
+apiVersion: v1
+kind: Service
+metadata:
+  name: pacman
+  namespace: retro-games
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8002
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: pacman
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pacman-deployment
+  namespace: retro-games
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pacman
+  template:
+    metadata:
+      labels:
+        app: pacman
+    spec:
+      containers:
+        - name: pacman
+          image: "tsuyakashi/mycool:pacman"
+          imagePullPolicy: Always
+          resources:
+            limits: { memory: 256Mi, cpu: "500m" }
+            requests: { memory: 64Mi, cpu: "100m" }
+          ports:
+            - containerPort: 8000
+---
+# === DOOM ===
+apiVersion: v1
+kind: Service
+metadata:
+  name: doom
+  namespace: retro-games
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8004
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: doom
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: doom-deployment
+  namespace: retro-games
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: doom
+  template:
+    metadata:
+      labels:
+        app: doom
+    spec:
+      containers:
+        - name: doom
+          image: "tsuyakashi/mycool:doom"
+          imagePullPolicy: Always
+          resources:
+            limits: { memory: 256Mi, cpu: "500m" }
+            requests: { memory: 64Mi, cpu: "100m" }
+          ports:
+            - containerPort: 8000

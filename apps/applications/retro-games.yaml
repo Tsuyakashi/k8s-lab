@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: retro-games
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argoproj.io/background
+spec:
+  project: default
+  source:
+    repoURL: "https://github.com/Tsuyakashi/devops-handbook.git" 
+    targetRevision: HEAD
+    path: apps/retro-games
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: retro-games
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

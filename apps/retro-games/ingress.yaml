@@ -1,0 +1,36 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: retro-games-ingress
+  namespace: retro-games
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/app-root: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: app.local
+    http:
+      paths:
+      - path: /bomberman(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: bomberman
+            port:
+              number: 8001
+      - path: /pacman(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: pacman
+            port:
+              number: 8002
+      - path: /doom(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: doom
+            port:
+              number: 8004

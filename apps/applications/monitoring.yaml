@@ -1,0 +1,76 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argoproj.io/background
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: "58.7.2"
+    helm:
+      values: |
+        grafana:
+          ingress:
+            enabled: true
+            ingressClassName: nginx
+            hosts:
+              - grafana.local
+          adminPassword: "admin"
+          additionalDataSources:
+            - name: Loki
+              type: loki
+              url: http://loki-stack.monitoring.svc.cluster.local:3100
+              access: proxy
+              isDefault: false
+
+        prometheus:
+          prometheusSpec:
+            retention: 7d
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: local-path
+                  accessModes: [ReadWriteOnce]
+                  resources:
+                    requests:
+                      storage: 10Gi
+
+        kubeControllerManager:
+          enabled: true
+        kubeScheduler:
+          enabled: true
+        kubeEtcd:
+          enabled: true
+          service:
+            enabled: true
+            port: 2381
+            targetPort: 2381
+
+        alertmanager:
+          enabled: true
+          apiVersion: v2
+          spec:
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: local-path
+                  accessModes: [ReadWriteOnce]
+                  resources:
+                    requests:
+                      storage: 2Gi
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

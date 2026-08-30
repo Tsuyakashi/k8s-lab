@@ -1,0 +1,27 @@
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: "{{ ansible_host }}"
+  bindPort: 6443
+---
+apiVersion: kubeadm.k8s.io/v1beta3
+kind: ClusterConfiguration
+kubernetesVersion: "v{{ k8s_version }}.0" # подставит вашу 1.30
+controlPlaneEndpoint: "{{ control_plane_vip }}:6443"
+networking:
+  podSubnet: "10.244.0.0/16"
+# Настройка etcd, чтобы он слушал на всех интерфейсах ноды
+etcd:
+  local:
+    extraArgs:
+      listen-metrics-urls: "http://0.0.0.0:2381"
+# Настройка Controller Manager
+controllerManager:
+  extraArgs:
+    bind-address: "0.0.0.0"
+# Настройка Scheduler
+scheduler:
+  extraArgs:
+    # На локальном хосте Vagrant выставляем метрики на 0.0.0.0 для Prometheus Operator.
+    # В продакшене так делать без авторизации нельзя!
+    bind-address: "0.0.0.0"

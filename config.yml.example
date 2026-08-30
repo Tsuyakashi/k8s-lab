@@ -1,0 +1,14 @@
+# config.yml
+cluster:
+  mode: ha             # Варианты: single или ha
+  control_plane_vip: "192.168.56.100"
+
+github:
+  user: "Tsuyakashi"
+  repo_name: "devops-handbook"
+  # Берем токен из переменной окружения хоста для безопасности
+  token_env_var: "GITHUB_TOKEN"
+
+secrets:
+  export_argo_password: true
+  output_file: ".secret"

@@ -1,0 +1,13 @@
+version = 2
+
+[plugins."io.containerd.grpc.v1.cri"]
+  sandbox_image = "registry.k8s.io/pause:{{ k8s_pause_version }}"
+
+  [plugins."io.containerd.grpc.v1.cri".containerd]
+    snapshotter = "overlayfs"
+
+    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+      runtime_type = "io.containerd.runc.v2"
+
+      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+        SystemdCgroup = {{ containerd_systemd_cgroup | lower }}

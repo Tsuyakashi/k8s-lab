@@ -1,0 +1,5 @@
+---
+k8s_version: "1.30"
+k8s_pause_version: "3.9"
+helm_version: "3.14.4"
+containerd_systemd_cgroup: true
