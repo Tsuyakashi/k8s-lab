@@ -1,0 +1,6 @@
+# Nothing to fill in if secrets come from Vault (the same
+# scripts/vault-apply-wrapper.sh as in the parent iac-proxmox-lab project) —
+# TF_VAR_proxmox_api_token is picked up automatically.
+#
+# Without the Vault wrapper, the minimum needed for apply:
+# proxmox_api_token = "terraform@pve!provider-token=<uuid-secret>"

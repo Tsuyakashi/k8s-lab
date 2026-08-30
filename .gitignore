@@ -3,3 +3,9 @@ venv/
 .env
 config.yml
 .secret
+terraform.tfvars
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+inventory.ini

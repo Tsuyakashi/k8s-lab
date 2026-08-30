@@ -1,0 +1,12 @@
+# Nothing to fill in if secrets come from Vault (the same
+# scripts/vault-apply-wrapper.sh as in the parent iac-proxmox-lab project) —
+# TF_VAR_proxmox_api_token / TF_VAR_vm_ssh_public_key / TF_VAR_ci_ssh_public_key
+# are picked up automatically.
+#
+# Without the Vault wrapper, the minimum needed for apply:
+# proxmox_api_token = "terraform@pve!provider-token=<uuid-secret>"
+# vm_ssh_public_key = "ssh-ed25519 AAAA..."
+# ci_ssh_public_key = "ssh-ed25519 AAAA..."
+#
+# Override var.nodes/var.role_specs here only if you need a topology
+# different from the defaults in variables.tf.

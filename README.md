@@ -1,0 +1,136 @@
+# k8s-lab
+
+Terraform infra for Kubernetes control-plane + worker nodes on Proxmox,
+built on the same principles (`mod/` + `env/`, S3/MinIO backend, cloud-init
+via `bpg/proxmox`) as the parent project — but this is a **separate,
+self-contained repository**, not an add-on on top of it. Modules aren't
+imported from anywhere external and don't depend on files from another repo.
+
+## What's NOT part of this project
+
+Everything related to the initial setup of the Proxmox cluster itself is
+already done in a separate project (`iac-proxmox-lab`) and isn't duplicated
+here:
+
+- Installing Proxmox VE, clustering the nodes, the QDevice arbiter
+- The `TerraformProv` role/token for API access (`proxmox-init.sh`)
+- Golden images (VM 9000/9001) — this project assumes they already exist
+  on both nodes
+- MinIO (S3-compatible state backend) and Vault (secrets storage) — this
+  project just **uses** them at the same addresses
+  (`192.168.100.100:9000` for MinIO, Vault optional, see below), it
+  doesn't stand them up itself
+- `scripts/vault-apply-wrapper.sh` and the whole Vault flow — if it's
+  already set up in the parent project, just source it here too: secrets
+  get picked up the same way (`TF_VAR_proxmox_api_token`,
+  `TF_VAR_vm_ssh_public_key`, `TF_VAR_ci_ssh_public_key`). Without it —
+  `terraform.tfvars` in each `env/*`.
+
+If you don't have a separate `iac-proxmox-lab` (or similar), every point
+above needs to be solved on your own infra first — this repository starts
+from an already-running Proxmox cluster with a golden image on each node.
+
+**The one additional requirement for the TerraformProv role:** it needs
+`SDN.Allocate` in addition to the already-present `SDN.Use` — `SDN.Use` is
+enough for a VNet/subnet, but not for creating the SDN zone itself.
+
+## Layout
+
+```
+k8s-lab/
+├── mod/
+│   ├── pve-vm/                  # the only primitive module: one VM,
+│   │                             #   cloned from a golden image + cloud-init
+│   └── sdn-network/              # SDN zone + VNet (+opt. subnet) on top of
+│                                  #   bpg/proxmox
+└── env/
+    ├── network/                  # root module — SDN zone/vnet only
+    └── nodes/                    # root module — the actual k8s VMs
+                                   #   (for_each directly over mod/pve-vm,
+                                   #   no intermediate "cluster" module —
+                                   #   role sizing and per-node golden-image
+                                   #   resolution live in env/nodes/locals.tf)
+```
+
+**Why there's only one VM module, not `pve-vm` plus a separate
+`k8s-cluster` wrapper on top.** The only thing the "cluster" layer added
+was a `for_each` over `var.nodes` and per-role sizing
+(`role_specs[role].cores` etc.). That's not standalone logic worth
+encapsulating separately — it's exactly the same use of `pve-vm` that's
+already the norm in the parent project (`environments/nodes`,
+`environments/poly-nodes`, etc. all call `modules/proxmox-vm` via
+`for_each` directly in their own `main.tf`, no wrapper). The wrapper added
+indirection with no payoff and meant keeping near-identical `variables.tf`
+in two places in sync. `pve-vm` stays the one reusable primitive — "one
+VM"; anything about "several VMs with different roles" is the calling
+`env/*`'s job.
+
+**Why `sdn-network` is a separate `env`, not part of `env/nodes`.** SDN
+zone/vnet changes are far less frequent than the VMs themselves. Keeping
+them in one state means any vnet change would trigger a replace on the VM
+resources through the same blast radius that, in the parent project, once
+took down the CI runner (see its README, "Two independent root modules, on
+purpose") — the same lesson, applied here upfront instead of after an
+incident.
+
+## Network choice: VXLAN, not a VLAN zone
+
+`mod/sdn-network` uses `sdn_zone_vxlan` rather than `sdn_zone_vlan` —
+VXLAN only needs UDP connectivity between node IPs, not VLAN tagging on
+the physical switch between them. If there's a managed switch with VLAN
+trunking between your Proxmox nodes, `sdn_zone_vlan` might be simpler and
+skip the encapsulation; check `bpg/proxmox`'s `docs/adr` and the Proxmox
+forum for the tradeoffs before switching.
+
+## Known topology limitation
+
+3 masters on 2 physical hosts (the default in `env/nodes/variables.tf`) is
+a demo/reference topology, not real HA: losing one host takes down 2 of 3
+masters and breaks etcd quorum. Options if that's not acceptable:
+
+1. Leave it as-is — reference/learning, not production.
+2. A third physical node (even a lightweight one, as a non-voting etcd
+   learner).
+3. Accept single-master, or use k3s instead (embedded etcd is optional,
+   lighter resource requirements) instead of full kubeadm HA.
+
+## Before the first apply
+
+1. Validate `mod/pve-vm` if the VM somehow doesn't get created — the
+   variable names here were hand-synced against the real `bpg/proxmox`
+   API, not autogenerated; a newer provider version could in theory have
+   renamed something in the `clone`/`initialization`/etc. blocks.
+2. Check the bucket/endpoint in both `env/*`'s `backend.tf` (`tfstate` /
+   `192.168.100.100:9000`) — adjust if your MinIO uses different ones.
+3. `SDN.Allocate` on the TerraformProv role (see above) — without it the
+   first `apply` in `env/network` fails with a `403` on creating the zone
+   itself.
+4. The golden image (`template_vm_id`, defaults to 9000 on `bare-pve` /
+   9001 on `pve-rog` — see `env/nodes/locals.tf`) must already exist on
+   both nodes the cluster's VMs will land on.
+
+## Apply
+
+```bash
+cd env/network && terraform init && terraform apply
+cd ../nodes    && terraform init && terraform apply
+```
+
+`env/nodes` reads `vnet_id` from `env/network` via
+`terraform_remote_state` (the same MinIO backend, key
+`k8s-network/terraform.tfstate`) — `env/network` must be applied first.
+
+## After apply (not covered by Terraform)
+
+Generating an Ansible inventory from the `ips_by_role`/`all_ips` outputs
+(the same `templatefile()` pattern as
+`environments/nodes/templates/inventory.tpl` in the parent project) and
+running a kubeadm-HA playbook against it — `kubeadm init/join`, the
+keepalived VIP, installing the CNI — all of that stays in Ansible, not
+Terraform, the same split already used for `local-path-provisioner` in
+`devops-handbook`.
+
+Once the cluster is up, it's worth putting the join token and cluster CA
+certs into the same Vault already used for the rest of the project's
+secrets (`proxmox/*` paths), instead of ad-hoc files on a runner or
+laptop.
