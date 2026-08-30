@@ -20,6 +20,7 @@ resource "proxmox_sdn_zone_vxlan" "this" {
   nodes = var.nodes
   peers = var.peers
   mtu   = var.mtu
+  ipam  = "pve"
 }
 
 resource "proxmox_sdn_vnet" "this" {
@@ -39,6 +40,7 @@ resource "proxmox_sdn_subnet" "this" {
   vnet    = proxmox_sdn_vnet.this.id
   cidr    = var.subnet_cidr
   gateway = var.subnet_gateway
+  snat    = var.subnet_snat
 
   depends_on = [proxmox_sdn_vnet.this]
 }

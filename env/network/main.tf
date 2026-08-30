@@ -11,4 +11,5 @@ module "k8s_cp_network" {
 
   subnet_cidr    = "10.100.0.0/24"
   subnet_gateway = "10.100.0.1"
+  subnet_snat    = true
 }
