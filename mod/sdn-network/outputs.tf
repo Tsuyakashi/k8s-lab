@@ -1,11 +1,11 @@
 output "vnet_id" {
   description = "The VNet identifier -- pass this as network_bridge to mod/pve-vm for any VM that should sit on this segment."
-  value       = proxmox_virtual_environment_sdn_vnet.this.id
+  value       = proxmox_sdn_vnet.this.id
 }
 
 output "zone_id" {
   description = "The SDN zone identifier."
-  value       = proxmox_virtual_environment_sdn_zone_vxlan.this.id
+  value       = proxmox_sdn_zone_vxlan.this.id
 }
 
 output "subnet_gateway" {

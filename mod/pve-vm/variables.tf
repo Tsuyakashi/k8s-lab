@@ -146,6 +146,12 @@ variable "migrate" {
   default     = false
 }
 
+variable "stop_on_destroy" {
+  description = "Force-stop instead of a graceful ACPI/agent shutdown on destroy. true is safer when the guest agent might not be running (e.g. VM never fully booted)."
+  type        = bool
+  default     = true
+}
+
 variable "template_node" {
   description = "Node where the golden image physically lives, if different from var.proxmox_node. Defaults to var.proxmox_node (same-node clone)."
   type        = string

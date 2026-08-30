@@ -68,19 +68,19 @@ variable "nodes" {
     extra_tags   = optional(list(string), [])
   }))
   default = {
-    "cp-1" = {
+    "control-plane-1" = {
       role         = "master"
       ip_address   = "10.100.0.11/24"
       gateway      = "10.100.0.1"
       proxmox_node = "bare-pve"
     }
-    "cp-2" = {
+    "control-plane-2" = {
       role         = "master"
       ip_address   = "10.100.0.12/24"
       gateway      = "10.100.0.1"
       proxmox_node = "pve-rog"
     }
-    "cp-3" = {
+    "control-plane-3" = {
       role         = "master"
       ip_address   = "10.100.0.13/24"
       gateway      = "10.100.0.1"

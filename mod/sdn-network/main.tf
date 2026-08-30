@@ -15,45 +15,45 @@
  * See: https://github.com/bpg/terraform-provider-proxmox/issues/2212
  */
 
-resource "proxmox_virtual_environment_sdn_zone_vxlan" "this" {
+resource "proxmox_sdn_zone_vxlan" "this" {
   id    = var.zone_id
   nodes = var.nodes
   peers = var.peers
   mtu   = var.mtu
 }
 
-resource "proxmox_virtual_environment_sdn_vnet" "this" {
+resource "proxmox_sdn_vnet" "this" {
   id   = var.vnet_id
-  zone = proxmox_virtual_environment_sdn_zone_vxlan.this.id
+  zone = proxmox_sdn_zone_vxlan.this.id
   tag  = var.vni_tag
 
-  depends_on = [proxmox_virtual_environment_sdn_applier.finalizer]
+  depends_on = [proxmox_sdn_applier.finalizer]
 }
 
 # Optional routed subnet with a gateway -- only create it if the caller wants
 # host-level L3 (e.g. so the segment can reach a state backend/secrets store
 # on the LAN via NAT).
-resource "proxmox_virtual_environment_sdn_subnet" "this" {
+resource "proxmox_sdn_subnet" "this" {
   count = var.subnet_cidr != null ? 1 : 0
 
-  vnet    = proxmox_virtual_environment_sdn_vnet.this.id
+  vnet    = proxmox_sdn_vnet.this.id
   cidr    = var.subnet_cidr
   gateway = var.subnet_gateway
 
-  depends_on = [proxmox_virtual_environment_sdn_vnet.this]
+  depends_on = [proxmox_sdn_vnet.this]
 }
 
-resource "proxmox_virtual_environment_sdn_applier" "finalizer" {}
+resource "proxmox_sdn_applier" "finalizer" {}
 
-resource "proxmox_virtual_environment_sdn_applier" "applier" {
+resource "proxmox_sdn_applier" "applier" {
   depends_on = [
-    proxmox_virtual_environment_sdn_vnet.this,
-    proxmox_virtual_environment_sdn_subnet.this,
+    proxmox_sdn_vnet.this,
+    proxmox_sdn_subnet.this,
   ]
 
   lifecycle {
     replace_triggered_by = [
-      proxmox_virtual_environment_sdn_vnet.this,
+      proxmox_sdn_vnet.this,
     ]
   }
 }

@@ -44,6 +44,13 @@ resource "proxmox_virtual_environment_vm" "this" {
 
   migrate = var.migrate
 
+  # agent.enabled = true below switches graceful shutdown from ACPI to
+  # qemu-guest-agent -- if the agent never comes up (or hangs), destroy
+  # waits out the full timeout while holding a lock on the VM.
+  # stop_on_destroy = true forces a hard stop instead of a graceful
+  # shutdown attempt.
+  stop_on_destroy = var.stop_on_destroy
+
   clone {
     vm_id     = var.template_vm_id
     node_name = coalesce(var.template_node, var.proxmox_node)
