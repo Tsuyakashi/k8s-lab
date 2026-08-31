@@ -26,6 +26,20 @@ variable "ci_ssh_public_key" {
   type        = string
 }
 
+variable "include_bootstrap" {
+  description = <<-EOT
+    Whether module.node["ci-bootstrap"] participates in this apply.
+    Defaults to false so a plain `terraform apply` never creates, updates,
+    or touches the ephemeral bootstrap node — only scripts/bootstrap-run.sh
+    manages it, passing `-var include_bootstrap=true` together with its own
+    `-target='module.node["ci-bootstrap"]'`. Without this, ci-bootstrap is
+    just another key in var.nodes and a plain apply would stand it up as a
+    permanent VM, defeating the whole "closed box" premise (see README).
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "role_specs" {
   description = "Per-role sizing. Keys must cover every role used in var.nodes."
   type = map(object({
@@ -73,7 +87,9 @@ variable "nodes" {
     scripts/bootstrap-run.sh applies/destroys around each ansible run. Kept
     in the same var.nodes map (not a separate environment) so it shares
     ips_by_role/all_ips output and the same nodes_resolved merge logic as
-    every real node.
+    every real node — but see var.include_bootstrap above: it's filtered
+    out of nodes_resolved (and therefore out of any plain apply) unless
+    explicitly included.
   EOT
   type = map(object({
     role         = string # a key in var.role_specs, e.g. "master"/"worker"/"bootstrap"

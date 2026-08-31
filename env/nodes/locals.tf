@@ -41,13 +41,18 @@ locals {
   # environments/nodes from environments/runner in the parent project.
   network_bridge = data.terraform_remote_state.network.outputs.vnet_id
 
-  # This used to be a separate mod/k8s-cluster module that did exactly this
-  # merge + for_each over mod/pve-vm under the hood — an extra layer for a
-  # single for_each, removed. role_specs cleanly handles what differs per
-  # role (cores/memory/disk); template_vm_id resolves per-node from each
-  # entry's own proxmox_node (never from var.proxmox_node) — a cross-node
-  # clone is structurally impossible, the same protection the parent
-  # project added after the minecraft-node/immich-node incidents.
+  # "ci-bootstrap" is filtered OUT of the default for_each set unless
+  # var.include_bootstrap is explicitly true. Without this, a plain
+  # `terraform apply` (no -target) creates every key in var.nodes,
+  # including ci-bootstrap — which defeats the entire point of it being
+  # an ephemeral, script-managed jump box (see scripts/bootstrap-run.sh
+  # and README "The closed box"). scripts/bootstrap-run.sh is the only
+  # caller that ever passes -var include_bootstrap=true, alongside its
+  # own -target on that one module instance. A side effect worth knowing:
+  # if ci-bootstrap is ever left lingering in state (e.g. a previous plain
+  # apply created it before this filter existed), the next plain apply
+  # will show it as "to destroy" — that's intentional self-cleanup, not a
+  # bug.
   nodes_resolved = {
     for name, n in var.nodes : name => merge(
       var.role_specs[n.role],
@@ -56,5 +61,6 @@ locals {
         template_vm_id = local.proxmox_nodes[n.proxmox_node].template_vm_id
       }
     )
+    if name != "ci-bootstrap" || var.include_bootstrap
   }
 }
