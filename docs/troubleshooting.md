@@ -211,7 +211,7 @@ never retries the install.
 
 Confirm: `helm -n argocd status argocd` — `STATUS: failed`.
 
-**Fix.** Added an explicit check  cleanup before `Install ArgoCD` in
+**Fix.** Added an explicit check & cleanup before `Install ArgoCD` in
 Play 10:
 ```yaml
 - name: Check existing ArgoCD release status
