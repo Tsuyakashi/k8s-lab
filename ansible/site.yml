@@ -240,8 +240,6 @@
       command: >
         kubeadm init
         --config=/tmp/kubeadm-config.yaml
-        --token={{ k8s_join_token }}
-        --certificate-key={{ k8s_cert_key }}
         --upload-certs
         --ignore-preflight-errors=NumCPU,Mem
       args:
@@ -376,6 +374,18 @@
       loop:
         - { name: argo,          url: "https://argoproj.github.io/argo-helm" }
         - { name: ingress-nginx, url: "https://kubernetes.github.io/ingress-nginx" }
+
+    - name: Check existing ArgoCD release status
+      command: helm -n argocd status argocd -o json
+      register: argocd_status
+      changed_when: false
+      failed_when: false
+
+    - name: Remove ArgoCD release if it's in a failed state
+      command: helm -n argocd uninstall argocd --wait
+      when:
+        - argocd_status.rc == 0
+        - (argocd_status.stdout | from_json).info.status != "deployed"
 
     - name: Install ArgoCD
       kubernetes.core.helm:

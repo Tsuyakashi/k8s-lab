@@ -13,6 +13,10 @@ vrrp_instance VI_1 {
   virtual_router_id 51
   priority {{ 100 - (groups['masters'].index(inventory_hostname) * 10) }}
   advert_int 1
+  garp_master_delay 1
+  garp_master_repeat 5
+  garp_master_refresh 30
+  garp_master_refresh_repeat 2
   authentication {
     auth_type PASS
     auth_pass k8s-ha

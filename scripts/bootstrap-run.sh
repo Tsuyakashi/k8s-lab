@@ -56,7 +56,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TF_DIR="${TF_DIR:-$REPO_ROOT/env/nodes}"
 ANSIBLE_DIR="${ANSIBLE_DIR:-$REPO_ROOT/ansible}"
 BOOTSTRAP_KEY="${BOOTSTRAP_KEY:-ci-bootstrap}"
-SSH_KEY="${SSH_KEY:-$HOME/.ssh/ci_key}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/iac-proxmox-deploy}"
 INVENTORY_OUT="${INVENTORY_OUT:-/tmp/inventory.ini}"
 
 # Two DIFFERENT Vault addresses, dialed from two different places:
@@ -73,21 +73,21 @@ INVENTORY_OUT="${INVENTORY_OUT:-/tmp/inventory.ini}"
 VAULT_ADDR_LAPTOP="${VAULT_ADDR_LAPTOP:-http://192.168.100.200:8200}"
 VAULT_ADDR_K8SCP="${VAULT_ADDR_K8SCP:-http://10.100.0.5:8200}"
 
-_destroyed=0
-destroy_bootstrap() {
-  if [ "${_destroyed}" -eq 1 ]; then
-    return 0
-  fi
-  echo "==> destroying bootstrap node (${BOOTSTRAP_KEY})..."
-  terraform -chdir="${TF_DIR}" destroy -auto-approve \
-    -var include_bootstrap=true \
-    -target="module.node[\"${BOOTSTRAP_KEY}\"]" || {
-      echo "!! bootstrap destroy failed — check for a leftover VM manually (module.node[\"${BOOTSTRAP_KEY}\"])" >&2
-      return 1
-    }
-  _destroyed=1
-}
-trap destroy_bootstrap EXIT
+# _destroyed=0
+# destroy_bootstrap() {
+#   if [ "${_destroyed}" -eq 1 ]; then
+#     return 0
+#   fi
+#   echo "==> destroying bootstrap node (${BOOTSTRAP_KEY})..."
+#   terraform -chdir="${TF_DIR}" destroy -auto-approve \
+#     -var include_bootstrap=true \
+#     -target="module.node[\"${BOOTSTRAP_KEY}\"]" >/dev/null || {
+#       echo "!! bootstrap destroy failed — check for a leftover VM manually (module.node[\"${BOOTSTRAP_KEY}\"])" >&2
+#       return 1
+#     }
+#   _destroyed=1
+# }
+# trap destroy_bootstrap EXIT
 
 echo "==> fetching Vault token from current session (${VAULT_ADDR_LAPTOP})"
 VAULT_TOKEN="$(VAULT_ADDR="${VAULT_ADDR_LAPTOP}" vault print token)"
@@ -114,12 +114,12 @@ if [ -z "${GITHUB_TOKEN:-}" ]; then
 fi
 
 echo "==> terraform init"
-terraform -chdir="${TF_DIR}" init -input=false
+terraform -chdir="${TF_DIR}" init -input=false >/dev/null
 
 echo "==> applying bootstrap node only (primary nic: k8scp, second nic: LAN)"
 terraform -chdir="${TF_DIR}" apply -auto-approve \
   -var include_bootstrap=true \
-  -target="module.node[\"${BOOTSTRAP_KEY}\"]"
+  -target="module.node[\"${BOOTSTRAP_KEY}\"]" >/dev/null
 
 BOOTSTRAP_LAN_IP="$(terraform -chdir="${TF_DIR}" output -raw bootstrap_lan_ip)"
 if [ -z "${BOOTSTRAP_LAN_IP}" ]; then
@@ -131,6 +131,10 @@ echo "==> waiting for bootstrap SSH on its LAN address (${BOOTSTRAP_LAN_IP})"
 for i in $(seq 1 30); do
   if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 \
        -i "${SSH_KEY}" "ubuntu@${BOOTSTRAP_LAN_IP}" true 2>/dev/null; then
+
+    # MT-PON-AT-1 fix
+    ssh -J bare-pve -o StrictHostKeyChecking=no -i "${SSH_KEY}" "ubuntu@${BOOTSTRAP_LAN_IP}" 'ping 192.168.100.12 -c3' > /dev/null
+
     break
   fi
   if [ "${i}" -eq 30 ]; then
@@ -139,6 +143,23 @@ for i in $(seq 1 30); do
   fi
   sleep 5
 done
+
+# for i in $(seq 1 30); do
+#   if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -i "${SSH_KEY}" "ubuntu@${BOOTSTRAP_LAN_IP}" 'nc -zv 10.100.0.11 22' > /dev/null
+#     if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -i "${SSH_KEY}" "ubuntu@${BOOTSTRAP_LAN_IP}" 'nc -zv 10.100.0.12 22' > /dev/null
+#       if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -i "${SSH_KEY}" "ubuntu@${BOOTSTRAP_LAN_IP}" 'nc -zv 10.100.0.13 22' > /dev/null
+#         if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 -i "${SSH_KEY}" "ubuntu@${BOOTSTRAP_LAN_IP}" 'nc -zv 10.100.0.21 22' > /dev/null
+#           break
+#         fi
+#       fi
+#     fi
+#   fi
+#   if [ "${i}" -eq 30 ]; then
+#     echo "bootstrap node never came up on SSH" >&2
+#     exit 1
+#   fi
+#   sleep 5
+# done
 
 echo "==> generating inventory (proxied through bootstrap's LAN nic)"
 bash "${REPO_ROOT}/scripts/generate-inventory.sh" "${TF_DIR}" "${INVENTORY_OUT}"
