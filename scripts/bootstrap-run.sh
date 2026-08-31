@@ -2,19 +2,29 @@
 #
 # What it does, in order:
 #   1. auth: read the already-cached Vault token from this shell (vault
-#      login must already be done — this script never logs in itself)
+#      login must already be done — this script never logs in itself).
+#      Uses VAULT_ADDR_LAPTOP (LAN, reachable from wherever this script
+#      runs) for that — NOT VAULT_ADDR_K8SCP, which only k8s nodes
+#      themselves can reach (see point 4 below).
 #   2. fetch CONTROL_PLANE_VIP/GITHUB_USER/GITHUB_REPO/GITHUB_TOKEN from
-#      Vault (proxmox/k8s-config) instead of requiring them as env vars —
-#      seed that path once with scripts/vault-seed-k8s-config.sh. Any of
-#      the four can still be overridden by exporting it before running
-#      this script; the Vault lookup only fires for whichever ones are
-#      unset.
+#      Vault (proxmox/k8s-config, via VAULT_ADDR_LAPTOP) instead of
+#      requiring them as env vars — seed that path once with
+#      scripts/vault-seed-k8s-config.sh. Any of the four can still be
+#      overridden by exporting it before running this script.
 #   3. terraform apply -target the bootstrap node only, with
 #      -var include_bootstrap=true (required — see env/nodes/locals.tf;
 #      without it ci-bootstrap is filtered out of the for_each entirely
-#      and -target finds nothing to create)
-#   4. wait for it to answer SSH
-#   5. generate the Ansible inventory (proxied through the bootstrap node)
+#      and -target finds nothing to create). ci-bootstrap gets a SECOND
+#      nic on the LAN (see env/nodes/variables.tf's lan_ip) — this script
+#      never touches 10.100.0.0/24 directly, only the LAN address.
+#   4. wait for it to answer SSH on its LAN address (bootstrap_lan_ip
+#      terraform output)
+#   5. generate the Ansible inventory — ProxyCommand also targets
+#      bootstrap_lan_ip, not the k8scp-side address (see
+#      scripts/generate-inventory.sh); ansible/site.yml's own Vault calls
+#      (play 4/5) run ON the masters/workers over that proxied SSH
+#      session, so THEY use VAULT_ADDR_K8SCP (10.100.0.5) — that address
+#      is only ever dialed from inside k8scp, never from this laptop.
 #   6. run the playbook
 #   7. ALWAYS terraform destroy the bootstrap node (same -var flag) —
 #      trap on EXIT, so it dies even if the playbook fails partway through.
@@ -27,10 +37,7 @@
 #     policy (read+write on proxmox/data/k8s-join, read on
 #     proxmox/data/k8s-config) — see scripts/vault-k8s-policy-init.sh.
 #   - proxmox/k8s-config must be seeded — see
-#     scripts/vault-seed-k8s-config.sh. If github_token is empty (public
-#     repo), the ArgoCD private-repo Secret task in ansible/site.yml still
-#     runs but with an empty password field — fine for a public repo,
-#     harmless either way since kubernetes.core.k8s is idempotent.
+#     scripts/vault-seed-k8s-config.sh.
 #   - TF_VAR_proxmox_api_token / TF_VAR_vm_ssh_public_key /
 #     TF_VAR_ci_ssh_public_key already exported (source
 #     iac-proxmox-lab/scripts/vault-apply-wrapper.sh once per shell, or
@@ -49,14 +56,22 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TF_DIR="${TF_DIR:-$REPO_ROOT/env/nodes}"
 ANSIBLE_DIR="${ANSIBLE_DIR:-$REPO_ROOT/ansible}"
 BOOTSTRAP_KEY="${BOOTSTRAP_KEY:-ci-bootstrap}"
-BOOTSTRAP_IP="${BOOTSTRAP_IP:-10.100.0.99}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/ci_key}"
 INVENTORY_OUT="${INVENTORY_OUT:-/tmp/inventory.ini}"
-# Vault sits directly on k8scp (see scripts/vault-attach-k8scp.sh, net1 on
-# CT 300 at 10.100.0.5) — no NAT hop through primary_exit_node needed for
-# k8s nodes, or this script, to reach it. Override back to the LAN address
-# (192.168.100.200:8200) if that attachment hasn't been applied yet.
-VAULT_ADDR="${VAULT_ADDR:-http://10.100.0.5:8200}"
+
+# Two DIFFERENT Vault addresses, dialed from two different places:
+#   - VAULT_ADDR_LAPTOP: this script's own `vault` CLI calls (print token,
+#     kv get) run right here, wherever this script is invoked from — that
+#     place has a route to the LAN, not to k8scp. Same address `vault
+#     status` already resolves to by default in your shell.
+#   - VAULT_ADDR_K8SCP: passed to ansible-playbook as -e vault_addr=...,
+#     which ansible/site.yml's `uri` tasks then dial FROM the target
+#     masters/workers (over the proxied SSH session) — those hosts sit on
+#     k8scp themselves, so 10.100.0.5 is a direct hop for them, same as it
+#     always was. Only this one stays inside k8scp; the laptop never
+#     touches it.
+VAULT_ADDR_LAPTOP="${VAULT_ADDR_LAPTOP:-http://192.168.100.200:8200}"
+VAULT_ADDR_K8SCP="${VAULT_ADDR_K8SCP:-http://10.100.0.5:8200}"
 
 _destroyed=0
 destroy_bootstrap() {
@@ -74,15 +89,15 @@ destroy_bootstrap() {
 }
 trap destroy_bootstrap EXIT
 
-echo "==> fetching Vault token from current session"
-VAULT_TOKEN="$(VAULT_ADDR="${VAULT_ADDR}" vault print token)"
+echo "==> fetching Vault token from current session (${VAULT_ADDR_LAPTOP})"
+VAULT_TOKEN="$(VAULT_ADDR="${VAULT_ADDR_LAPTOP}" vault print token)"
 if [ -z "${VAULT_TOKEN}" ]; then
   echo "no cached Vault token — run 'vault login -method=userpass username=<you>' first" >&2
   exit 1
 fi
 
 _kv() {
-  VAULT_ADDR="${VAULT_ADDR}" VAULT_TOKEN="${VAULT_TOKEN}" vault kv get -field="$1" proxmox/k8s-config 2>/dev/null || true
+  VAULT_ADDR="${VAULT_ADDR_LAPTOP}" VAULT_TOKEN="${VAULT_TOKEN}" vault kv get -field="$1" proxmox/k8s-config 2>/dev/null || true
 }
 
 echo "==> resolving cluster config (env override, falling back to Vault proxmox/k8s-config)"
@@ -101,15 +116,21 @@ fi
 echo "==> terraform init"
 terraform -chdir="${TF_DIR}" init -input=false
 
-echo "==> applying bootstrap node only"
+echo "==> applying bootstrap node only (primary nic: k8scp, second nic: LAN)"
 terraform -chdir="${TF_DIR}" apply -auto-approve \
   -var include_bootstrap=true \
   -target="module.node[\"${BOOTSTRAP_KEY}\"]"
 
-echo "==> waiting for bootstrap SSH (${BOOTSTRAP_IP})"
+BOOTSTRAP_LAN_IP="$(terraform -chdir="${TF_DIR}" output -raw bootstrap_lan_ip)"
+if [ -z "${BOOTSTRAP_LAN_IP}" ]; then
+  echo "bootstrap_lan_ip output is empty — check nodes[\"ci-bootstrap\"].lan_ip in env/nodes/variables.tf" >&2
+  exit 1
+fi
+
+echo "==> waiting for bootstrap SSH on its LAN address (${BOOTSTRAP_LAN_IP})"
 for i in $(seq 1 30); do
   if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 \
-       -i "${SSH_KEY}" "ubuntu@${BOOTSTRAP_IP}" true 2>/dev/null; then
+       -i "${SSH_KEY}" "ubuntu@${BOOTSTRAP_LAN_IP}" true 2>/dev/null; then
     break
   fi
   if [ "${i}" -eq 30 ]; then
@@ -119,13 +140,13 @@ for i in $(seq 1 30); do
   sleep 5
 done
 
-echo "==> generating inventory (proxied through bootstrap)"
+echo "==> generating inventory (proxied through bootstrap's LAN nic)"
 bash "${REPO_ROOT}/scripts/generate-inventory.sh" "${TF_DIR}" "${INVENTORY_OUT}"
 
 echo "==> running ansible-playbook"
 ansible-playbook -i "${INVENTORY_OUT}" "${ANSIBLE_DIR}/site.yml" \
   --private-key "${SSH_KEY}" \
-  -e vault_addr="${VAULT_ADDR}" \
+  -e vault_addr="${VAULT_ADDR_K8SCP}" \
   -e vault_token="${VAULT_TOKEN}" \
   -e control_plane_vip="${CONTROL_PLANE_VIP}" \
   -e github_user="${GITHUB_USER}" \

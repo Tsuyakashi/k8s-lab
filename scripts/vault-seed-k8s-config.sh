@@ -10,13 +10,19 @@
 # proxmox/data/k8s-config — see scripts/vault-k8s-policy-init.sh (run that
 # first if this fails with a permission error).
 #
+# Uses the LAN address, same as vault-k8s-policy-init.sh — this script
+# runs from an operator's laptop, which has no route into 10.100.0.0/24
+# (that's the whole reason ci-bootstrap got a second NIC in the first
+# place). Never point VAULT_ADDR at 10.100.0.5 here — that address only
+# means anything from inside k8scp (see scripts/bootstrap-run.sh's
+# VAULT_ADDR_K8SCP, which is a completely separate concern: what the k8s
+# nodes themselves dial, not what this script dials).
+#
 # Usage:
-#   VAULT_ADDR=http://10.100.0.5:8200 ./scripts/vault-seed-k8s-config.sh
-#   (or the LAN address, http://192.168.100.200:8200, if
-#   vault-attach-k8scp.sh hasn't been applied yet)
+#   VAULT_ADDR=http://192.168.100.200:8200 ./scripts/vault-seed-k8s-config.sh
 
 set -euo pipefail
-: "${VAULT_ADDR:?set VAULT_ADDR before running}"
+: "${VAULT_ADDR:?set VAULT_ADDR before running (e.g. http://192.168.100.200:8200)}"
 
 read -rp "control_plane_vip (keepalived VIP, NOT one of var.nodes' addresses, e.g. 10.100.0.10): " CP_VIP
 read -rp "github_user: " GH_USER

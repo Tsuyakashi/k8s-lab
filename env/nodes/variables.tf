@@ -90,14 +90,23 @@ variable "nodes" {
     every real node — but see var.include_bootstrap above: it's filtered
     out of nodes_resolved (and therefore out of any plain apply) unless
     explicitly included.
+
+    lan_ip/lan_gateway: only meaningful for "ci-bootstrap". Gives it a
+    SECOND nic on the LAN (vmbr0), in addition to its primary nic on
+    k8scp — an operator's laptop has no route into 10.100.0.0/24, so this
+    is what scripts/bootstrap-run.sh/generate-inventory.sh actually SSH to.
+    See mod/pve-vm's second_network variable for the mechanics. null on
+    every other node (masters/workers only ever need the k8scp side).
   EOT
   type = map(object({
     role         = string # a key in var.role_specs, e.g. "master"/"worker"/"bootstrap"
-    ip_address   = string # CIDR, e.g. "10.100.0.11/24"
+    ip_address   = string # CIDR, e.g. "10.100.0.11/24" — primary NIC, always on k8scp
     gateway      = string
     proxmox_node = string
     mac_address  = optional(string)
     extra_tags   = optional(list(string), [])
+    lan_ip       = optional(string) # CIDR, e.g. "192.168.100.99/24" — second NIC, LAN
+    lan_gateway  = optional(string)
   }))
   default = {
     "control-plane-1" = {
@@ -129,6 +138,8 @@ variable "nodes" {
       ip_address   = "10.100.0.99/24"
       gateway      = "10.100.0.1"
       proxmox_node = "bare-pve"
+      lan_ip       = "192.168.100.99/24"
+      lan_gateway  = "192.168.100.1"
     }
   }
 }

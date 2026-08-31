@@ -34,6 +34,18 @@ module "node" {
     address = each.value.ip_address
     gateway = each.value.gateway
   }
+
+  # Second NIC on the LAN — only set for ci-bootstrap (see variables.tf's
+  # lan_ip/lan_gateway doc). Masters/workers stay single-NIC on k8scp.
+  second_network = each.value.lan_ip != null ? {
+    bridge = "vmbr0"
+    ip_config = {
+      mode    = "static"
+      address = each.value.lan_ip
+      gateway = each.value.lan_gateway
+    }
+  } : null
+
   # IP is known upfront (static) — no point waiting on the guest agent during apply
   wait_for_ip_disabled = true
 

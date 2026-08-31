@@ -3,7 +3,8 @@
  *
  * Single unit of provisioning: one VM cloned from a golden image, with a
  * cloud-init snippet (user + guest agent + hostname) and either a static
- * or dhcp address.
+ * or dhcp address on its primary NIC, plus an optional second NIC
+ * (var.second_network — see variables.tf for why ci-bootstrap uses it).
  *
  * The module is self-contained and not tied to any specific project: no
  * backend{}, no provider "proxmox" (endpoint/token/ssh is the calling root
@@ -80,9 +81,20 @@ resource "proxmox_virtual_environment_vm" "this" {
     size         = var.disk_size
   }
 
+  # Primary NIC — always present.
   network_device {
     bridge      = var.network_bridge
     mac_address = var.mac_address
+  }
+
+  # Optional second NIC (see var.second_network). MUST stay declared after
+  # the primary network_device block above — the provider pairs
+  # network_device/ip_config blocks up by declaration order, not by name.
+  dynamic "network_device" {
+    for_each = var.second_network != null ? [var.second_network] : []
+    content {
+      bridge = network_device.value.bridge
+    }
   }
 
   serial_device {
@@ -99,12 +111,27 @@ resource "proxmox_virtual_environment_vm" "this" {
       servers = ["1.1.1.1", "8.8.8.8"]
     }
 
+    # ip_config for the primary NIC — always present, matches
+    # network_device #1 above by order.
     ip_config {
       ipv4 {
         address = var.ip_config.mode == "static" ? var.ip_config.address : "dhcp"
         gateway = var.ip_config.mode == "static" ? var.ip_config.gateway : null
       }
     }
+
+    # ip_config for the optional second NIC — MUST stay declared after the
+    # primary ip_config block above, matches network_device #2 by order.
+    dynamic "ip_config" {
+      for_each = var.second_network != null ? [var.second_network.ip_config] : []
+      content {
+        ipv4 {
+          address = ip_config.value.mode == "static" ? ip_config.value.address : "dhcp"
+          gateway = ip_config.value.mode == "static" ? ip_config.value.gateway : null
+        }
+      }
+    }
+
     user_data_file_id = proxmox_virtual_environment_file.cloud_init_user_data.id
   }
 

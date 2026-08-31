@@ -67,7 +67,8 @@ variable "mac_address" {
 
 variable "ip_config" {
   description = <<-EOT
-    Network configuration applied via cloud-init:
+    Network configuration applied via cloud-init, for the PRIMARY NIC
+    (network_device #1, var.network_bridge):
       mode    = "static" | "dhcp"
       address = CIDR address, required when mode = "static" (e.g. "10.100.0.11/24")
       gateway = required when mode = "static"
@@ -87,6 +88,37 @@ variable "ip_config" {
     condition     = var.ip_config.mode != "static" || (var.ip_config.address != null && var.ip_config.gateway != null)
     error_message = "address and gateway are required when ip_config.mode = \"static\"."
   }
+}
+
+variable "second_network" {
+  description = <<-EOT
+    Optional second NIC — its own bridge + ip_config, in addition to the
+    primary one (var.network_bridge/var.ip_config above). Used by
+    env/nodes' ci-bootstrap entry: primary NIC stays on the k8scp SDN VNet
+    (so it can proxy SSH into the other k8s nodes), second NIC sits on the
+    LAN (so an operator's laptop — which has no route into k8scp — can
+    reach it directly, without a static route or NAT hop through
+    primary_exit_node). Same two-NIC idea as Vault's CT 300
+    (scripts/vault-attach-k8scp.sh), just the other way around: there the
+    *standing* Vault CT gets the extra interface into k8scp; here the
+    *ephemeral* bootstrap node gets the extra interface into the LAN.
+
+    null = single-NIC (every other role — masters/workers never need this).
+
+    Implementation note: network_device/ip_config blocks are paired up by
+    declaration ORDER in the bpg/proxmox provider, not by name — this is
+    why main.tf emits the primary network_device/ip_config first (static
+    blocks) and this one second (dynamic blocks). Don't reorder them.
+  EOT
+  type = object({
+    bridge = string
+    ip_config = object({
+      mode    = string
+      address = optional(string)
+      gateway = optional(string)
+    })
+  })
+  default = null
 }
 
 variable "wait_for_ip_disabled" {
@@ -135,7 +167,7 @@ variable "docker_group" {
 }
 
 variable "network_bridge" {
-  description = "Bridge or SDN VNet the VM's network interface attaches to."
+  description = "Bridge or SDN VNet the VM's PRIMARY network interface attaches to."
   type        = string
   default     = "vmbr0"
 }
