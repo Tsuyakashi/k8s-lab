@@ -45,6 +45,16 @@ variable "role_specs" {
       memory    = 2048
       disk_size = 20
     }
+    # Ephemeral SSH jump box into the k8scp EVPN subnet (10.100.0.0/24) —
+    # created just before an ansible run (see scripts/bootstrap-run.sh) and
+    # destroyed right after, "закрытый ящик" doesn't get a standing
+    # tunnel/route from the LAN. No swap/heavy workload runs on it, hence
+    # the minimal spec.
+    bootstrap = {
+      cores     = 1
+      memory    = 512
+      disk_size = 10
+    }
   }
 }
 
@@ -58,9 +68,15 @@ variable "nodes" {
     template_vm_id is deliberately NOT a field of this object — it's
     resolved in locals.tf from each entry's own proxmox_node, so a
     cross-node clone is structurally impossible.
+
+    "ci-bootstrap" is not a cluster member — it's the ephemeral jump box
+    scripts/bootstrap-run.sh applies/destroys around each ansible run. Kept
+    in the same var.nodes map (not a separate environment) so it shares
+    ips_by_role/all_ips output and the same nodes_resolved merge logic as
+    every real node.
   EOT
   type = map(object({
-    role         = string # a key in var.role_specs, e.g. "master"/"worker"
+    role         = string # a key in var.role_specs, e.g. "master"/"worker"/"bootstrap"
     ip_address   = string # CIDR, e.g. "10.100.0.11/24"
     gateway      = string
     proxmox_node = string
@@ -91,6 +107,12 @@ variable "nodes" {
       ip_address   = "10.100.0.21/24"
       gateway      = "10.100.0.1"
       proxmox_node = "pve-rog"
+    }
+    "ci-bootstrap" = {
+      role         = "bootstrap"
+      ip_address   = "10.100.0.99/24"
+      gateway      = "10.100.0.1"
+      proxmox_node = "bare-pve"
     }
   }
 }

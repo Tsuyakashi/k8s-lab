@@ -133,7 +133,94 @@
         name: keepalived
         state: restarted
 
-- name: 4. Initialize Control Plane (primary master)
+# ──────────────────────────────────────────────────────────────────
+# 4. Join-секреты — генерируются один раз, до какого-либо kubeadm init,
+#    и хранятся в Vault. Каждая нода дальше читает их сама — ни одна
+#    задача не парсит stdout другой ноды и не тянет файл через slurp.
+# ──────────────────────────────────────────────────────────────────
+- name: 4. Precompute & store join secrets in Vault
+  hosts: master_primary
+  become: true
+  vars:
+    vault_kv_url: "{{ vault_addr }}/v1/proxmox/data/k8s-join"
+  tasks:
+    - name: Check whether secrets already exist in Vault
+      uri:
+        url: "{{ vault_kv_url }}"
+        headers:
+          X-Vault-Token: "{{ vault_token }}"
+        status_code: [200, 404]
+      register: vault_check
+      no_log: true
+
+    - name: Bootstrap block — only runs once, on first-ever init
+      when: vault_check.status == 404
+      block:
+        - name: Check if CA already exists locally
+          stat:
+            path: /etc/kubernetes/pki/ca.crt
+          register: ca_exists
+
+        - name: Generate cluster CA only (no full init yet)
+          command: kubeadm init phase certs ca
+          when: not ca_exists.stat.exists
+
+        - name: Compute discovery-token-ca-cert-hash
+          shell: >
+            openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt |
+            openssl rsa -pubin -outform der 2>/dev/null |
+            openssl dgst -sha256 -hex | sed 's/^.* //'
+          register: ca_cert_hash
+          changed_when: false
+
+        - name: Generate bootstrap token (deterministic format, no init needed)
+          command: kubeadm token generate
+          register: k8s_token
+          changed_when: false
+
+        - name: Generate certificate-key for control-plane join
+          command: kubeadm certs certificate-key
+          register: k8s_cert_key
+          changed_when: false
+
+        - name: Store join secrets in Vault
+          uri:
+            url: "{{ vault_kv_url }}"
+            method: POST
+            headers:
+              X-Vault-Token: "{{ vault_token }}"
+            body_format: json
+            body:
+              data:
+                token: "{{ k8s_token.stdout }}"
+                cert_key: "{{ k8s_cert_key.stdout }}"
+                ca_cert_hash: "{{ ca_cert_hash.stdout }}"
+            status_code: [200, 204]
+          no_log: true
+
+- name: 5. Read join secrets from Vault on every node that needs them
+  hosts: masters:workers
+  become: true
+  vars:
+    vault_kv_url: "{{ vault_addr }}/v1/proxmox/data/k8s-join"
+  tasks:
+    - name: Fetch join secrets
+      uri:
+        url: "{{ vault_kv_url }}"
+        headers:
+          X-Vault-Token: "{{ vault_token }}"
+        return_content: true
+      register: vault_secrets
+      no_log: true
+
+    - name: Set facts from Vault response
+      set_fact:
+        k8s_join_token: "{{ vault_secrets.json.data.data.token }}"
+        k8s_cert_key: "{{ vault_secrets.json.data.data.cert_key }}"
+        k8s_ca_cert_hash: "{{ vault_secrets.json.data.data.ca_cert_hash }}"
+      no_log: true
+
+- name: 6. Initialize Control Plane (primary master)
   hosts: master_primary
   become: true
   tasks:
@@ -149,30 +236,33 @@
         mode: "0600"
       when: not admin_conf.stat.exists
 
-    - name: Run kubeadm init with config file
+    - name: Run kubeadm init with pre-known token/cert-key
       command: >
-        kubeadm init 
-        --config=/tmp/kubeadm-config.yaml 
-        --upload-certs 
+        kubeadm init
+        --config=/tmp/kubeadm-config.yaml
+        --token={{ k8s_join_token }}
+        --certificate-key={{ k8s_cert_key }}
+        --upload-certs
         --ignore-preflight-errors=NumCPU,Mem
       args:
         creates: /etc/kubernetes/admin.conf
+      no_log: true
 
-    - name: Create .kube directory for vagrant user
+    - name: Create .kube directory for ansible_user
       file:
-        path: /home/vagrant/.kube
+        path: "/home/{{ ansible_user }}/.kube"
         state: directory
-        owner: vagrant
-        group: vagrant
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0755"
 
-    - name: Copy admin.conf for vagrant user
+    - name: Copy admin.conf for ansible_user
       copy:
         src: /etc/kubernetes/admin.conf
-        dest: /home/vagrant/.kube/config
+        dest: "/home/{{ ansible_user }}/.kube/config"
         remote_src: true
-        owner: vagrant
-        group: vagrant
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0600"
 
     - name: Install Flannel CNI
@@ -181,82 +271,55 @@
       args:
         creates: /etc/cni/net.d/10-flannel.conflist
 
-    - name: Generate join command for workers
-      command: kubeadm token create --print-join-command
-      register: worker_join_raw
-
-    - name: Save worker join command
-      copy:
-        content: "{{ worker_join_raw.stdout }}"
-        dest: /tmp/worker-join.sh
-        mode: "0755"
-
-    - name: Upload certs and capture certificate key
-      shell: kubeadm init phase upload-certs --upload-certs 2>/dev/null | tail -1
-      register: cert_key_raw
-
-    - name: Generate join command for control plane nodes
-      command: "kubeadm token create --print-join-command --certificate-key {{ cert_key_raw.stdout | trim }}"
-      register: cp_join_raw
-
-    - name: Save control plane join command
-      copy:
-        content: "{{ cp_join_raw.stdout }}"
-        dest: /tmp/cp-join.sh
-        mode: "0755"
-
-- name: 5. Join secondary masters
+- name: 7. Join secondary masters
   hosts: master_secondary
   become: true
   serial: 1
   tasks:
-    - name: Read control plane join command
-      slurp:
-        src: /tmp/cp-join.sh
-      delegate_to: master-1
-      register: cp_join_file
-
     - name: Join as control plane node
       shell: >
-        {{ cp_join_file.content | b64decode | trim }}
+        kubeadm join {{ control_plane_vip }}:6443
+        --token {{ k8s_join_token }}
+        --discovery-token-ca-cert-hash sha256:{{ k8s_ca_cert_hash }}
+        --control-plane
+        --certificate-key {{ k8s_cert_key }}
         --apiserver-advertise-address={{ ansible_host }}
         --ignore-preflight-errors=NumCPU,Mem
       args:
         creates: /etc/kubernetes/admin.conf
+      no_log: true
 
-    - name: Create .kube directory for vagrant user
+    - name: Create .kube directory for ansible_user
       file:
-        path: /home/vagrant/.kube
+        path: "/home/{{ ansible_user }}/.kube"
         state: directory
-        owner: vagrant
-        group: vagrant
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0755"
 
-    - name: Copy admin.conf for vagrant user
+    - name: Copy admin.conf for ansible_user
       copy:
         src: /etc/kubernetes/admin.conf
-        dest: /home/vagrant/.kube/config
+        dest: "/home/{{ ansible_user }}/.kube/config"
         remote_src: true
-        owner: vagrant
-        group: vagrant
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0600"
 
-- name: 6. Join Worker Nodes
+- name: 8. Join Worker Nodes
   hosts: workers
   become: true
   tasks:
-    - name: Read worker join command
-      slurp:
-        src: /tmp/worker-join.sh
-      delegate_to: master-1
-      register: join_command_file
-
     - name: Join worker to cluster
-      command: "{{ join_command_file.content | b64decode | trim }}"
+      command: >
+        kubeadm join {{ control_plane_vip }}:6443
+        --token {{ k8s_join_token }}
+        --discovery-token-ca-cert-hash sha256:{{ k8s_ca_cert_hash }}
       args:
         creates: /etc/kubernetes/kubelet.conf
+      no_log: true
 
-- name: 7. Install Local Path Provisioner
+- name: 9. Install Local Path Provisioner
   hosts: master_primary
   become: false
   tasks:
@@ -279,7 +342,7 @@
         kubectl patch storageclass local-path
         -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
 
-- name: 8. Deploy ArgoCD & Ingress NGINX
+- name: 10. Deploy ArgoCD & Ingress NGINX
   hosts: master_primary
   become: false
   tasks:
@@ -345,7 +408,7 @@
                 http: 30080
                 https: 30443
 
-- name: 9. Configure ArgoCD Repository & Root Application
+- name: 11. Configure ArgoCD Repository & Root Application
   hosts: master_primary
   become: false
   tasks:

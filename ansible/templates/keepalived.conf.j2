@@ -8,8 +8,8 @@ vrrp_script check_apiserver {
 }
 
 vrrp_instance VI_1 {
-  state {{ 'MASTER' if inventory_hostname == 'master-1' else 'BACKUP' }}
-  interface eth1
+  state {{ 'MASTER' if inventory_hostname == groups['master_primary'][0] else 'BACKUP' }}
+  interface {{ ansible_default_ipv4.interface }}
   virtual_router_id 51
   priority {{ 100 - (groups['masters'].index(inventory_hostname) * 10) }}
   advert_int 1
