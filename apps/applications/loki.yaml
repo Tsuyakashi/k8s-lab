@@ -28,6 +28,9 @@ spec:
         # Standalone Grafana disabled — we use the one from kube-prometheus-stack
         grafana:
           enabled: false
+          sidecar:
+            datasources:
+              enabled: false
   destination:
     server: 'https://kubernetes.default.svc'
     namespace: monitoring

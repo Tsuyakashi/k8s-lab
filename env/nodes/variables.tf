@@ -133,6 +133,12 @@ variable "nodes" {
       gateway      = "10.100.0.1"
       proxmox_node = "pve-rog"
     }
+    "worker-2" = {
+      role         = "worker"
+      ip_address   = "10.100.0.22/24"
+      gateway      = "10.100.0.1"
+      proxmox_node = "pve-rog"
+    }
     "ci-bootstrap" = {
       role         = "bootstrap"
       ip_address   = "10.100.0.99/24"
