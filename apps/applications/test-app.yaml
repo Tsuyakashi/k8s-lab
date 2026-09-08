@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: "https://github.com/Tsuyakashi/devops-handbook.git"
+    repoURL: "https://github.com/Tsuyakashi/k8s-lab.git"
     targetRevision: HEAD
     path: apps/test-app
   destination:

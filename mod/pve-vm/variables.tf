@@ -127,13 +127,8 @@ variable "wait_for_ip_disabled" {
   default     = false
 }
 
-variable "vm_ssh_public_key" {
-  description = "User's SSH key, injected via cloud-init."
-  type        = string
-}
-
-variable "ci_ssh_public_key" {
-  description = "SSH key for CI/CD access (no passphrase, dedicated to automation, separate from the user key)."
+variable "ssh_public_key" {
+  description = "SSH key injected via cloud-init. Single unified key for the user and CI/CD (was vm_ssh_public_key + ci_ssh_public_key — as in iac-proxmox-lab)."
   type        = string
 }
 

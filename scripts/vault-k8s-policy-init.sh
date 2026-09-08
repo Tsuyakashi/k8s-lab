@@ -5,16 +5,16 @@
 # Extends Vault access for k8s-lab's bootstrap flow, on top of whatever
 # iac-proxmox-lab/scripts/vault-userpass-init.sh already set up for this
 # operator (operator-manual-apply policy, used for TF_VAR_* fetches via
-# vault-apply-wrapper.sh). Two new paths, granted through a separate
-# policy so k8s-lab's needs don't get silently baked into the other
-# repo's policy definition:
+# vault-apply-wrapper.sh). This repo gets its own KV mount k8s-lab/ (this
+# script enables it) and a separate policy so k8s-lab's needs don't get
+# silently baked into the base repo's policy definition:
 #
-#   - proxmox/data/k8s-join   — read+write. ansible/site.yml's play 4
+#   - k8s-lab/data/join-keys — read+write. ansible/site.yml's play 4
 #     writes the kubeadm token/cert-key/ca-hash once (first-ever init
 #     only); every node in play 5 reads them back. Both operations run
 #     with whatever Vault token scripts/bootstrap-run.sh picks up via
 #     `vault print token` — that token needs both capabilities.
-#   - proxmox/data/k8s-config — read only. control_plane_vip/github_user/
+#   - k8s-lab/data/config — read only. control_plane_vip/github_user/
 #     github_repo/github_token, seeded by scripts/vault-seed-k8s-config.sh
 #     and read by scripts/bootstrap-run.sh on every invocation.
 #
@@ -28,11 +28,16 @@
 set -euo pipefail
 : "${VAULT_ADDR:?set VAULT_ADDR before running (e.g. http://192.168.100.200:8200)}"
 
+# This repo's own KV mount (idempotent).
+vault secrets enable -path=k8s-lab kv-v2 2>/dev/null \
+  && echo "enabled KV mount k8s-lab/" \
+  || echo "KV mount k8s-lab/ already exists, skipping"
+
 vault policy write k8s-lab-bootstrap - <<POLICY
-path "proxmox/data/k8s-join" {
+path "k8s-lab/data/join-keys" {
   capabilities = ["create", "read", "update"]
 }
-path "proxmox/data/k8s-config" {
+path "k8s-lab/data/config" {
   capabilities = ["read"]
 }
 POLICY
