@@ -5,7 +5,7 @@ cluster:
 
 github:
   user: "Tsuyakashi"
-  repo_name: "devops-handbook"
+  repo_name: "k8s-lab"
   # Берем токен из переменной окружения хоста для безопасности
   token_env_var: "GITHUB_TOKEN"
 

@@ -7,7 +7,7 @@
 #      runs) for that — NOT VAULT_ADDR_K8SCP, which only k8s nodes
 #      themselves can reach (see point 4 below).
 #   2. fetch CONTROL_PLANE_VIP/GITHUB_USER/GITHUB_REPO/GITHUB_TOKEN from
-#      Vault (proxmox/k8s-config, via VAULT_ADDR_LAPTOP) instead of
+#      Vault (k8s-lab/config, via VAULT_ADDR_LAPTOP) instead of
 #      requiring them as env vars — seed that path once with
 #      scripts/vault-seed-k8s-config.sh. Any of the four can still be
 #      overridden by exporting it before running this script.
@@ -34,16 +34,15 @@
 #     shell (or VAULT_TOKEN already exported) — this script does not log
 #     you in, it only reads the cached token via `vault print token`.
 #   - The logged-in operator's Vault token needs the `k8s-lab-bootstrap`
-#     policy (read+write on proxmox/data/k8s-join, read on
-#     proxmox/data/k8s-config) — see scripts/vault-k8s-policy-init.sh.
-#   - proxmox/k8s-config must be seeded — see
+#     policy (read+write on k8s-lab/data/join-keys, read on
+#     k8s-lab/data/config) — see scripts/vault-k8s-policy-init.sh.
+#   - k8s-lab/config must be seeded — see
 #     scripts/vault-seed-k8s-config.sh.
-#   - TF_VAR_proxmox_api_token / TF_VAR_vm_ssh_public_key /
-#     TF_VAR_ci_ssh_public_key already exported (source
-#     iac-proxmox-lab/scripts/vault-apply-wrapper.sh once per shell, or
-#     export them yourself).
-#   - ~/.ssh/ci_key present and usable against the CI SSH key registered
-#     in cloud-init (proxmox/ssh-keys' ci_public_key in Vault).
+#   - TF_VAR_proxmox_api_token / TF_VAR_ssh_public_key already exported
+#     (source iac-proxmox-lab/scripts/vault-apply-wrapper.sh once per
+#     shell, or export them yourself).
+#   - ~/.ssh/ci_key present and usable against the SSH key registered
+#     in cloud-init (proxmox/ssh-keys' public_key in Vault).
 #
 # Usage:
 #   source /path/to/iac-proxmox-lab/scripts/vault-apply-wrapper.sh   # once
@@ -97,10 +96,10 @@ if [ -z "${VAULT_TOKEN}" ]; then
 fi
 
 _kv() {
-  VAULT_ADDR="${VAULT_ADDR_LAPTOP}" VAULT_TOKEN="${VAULT_TOKEN}" vault kv get -field="$1" proxmox/k8s-config 2>/dev/null || true
+  VAULT_ADDR="${VAULT_ADDR_LAPTOP}" VAULT_TOKEN="${VAULT_TOKEN}" vault kv get -field="$1" k8s-lab/config 2>/dev/null || true
 }
 
-echo "==> resolving cluster config (env override, falling back to Vault proxmox/k8s-config)"
+echo "==> resolving cluster config (env override, falling back to Vault k8s-lab/config)"
 CONTROL_PLANE_VIP="${CONTROL_PLANE_VIP:-$(_kv control_plane_vip)}"
 GITHUB_USER="${GITHUB_USER:-$(_kv github_user)}"
 GITHUB_REPO="${GITHUB_REPO:-$(_kv github_repo)}"

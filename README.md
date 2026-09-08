@@ -24,8 +24,7 @@ here:
 - `scripts/vault-apply-wrapper.sh` and the whole Vault flow — if it's
   already set up in the parent project, just source it here too: secrets
   get picked up the same way (`TF_VAR_proxmox_api_token`,
-  `TF_VAR_vm_ssh_public_key`, `TF_VAR_ci_ssh_public_key`). Without it —
-  `terraform.tfvars` in each `env/*`.
+  `TF_VAR_ssh_public_key`). Without it — `terraform.tfvars` in each `env/*`.
 
 If you don't have a separate `iac-proxmox-lab` (or similar), every point
 above needs to be solved on your own infra first — this repository starts
@@ -165,12 +164,14 @@ masters and breaks etcd quorum. Options if that's not acceptable:
 
 ## Secrets & Vault
 
-Everything the bootstrap flow needs from Vault lives under
-`proxmox/k8s-join` (the `kubeadm` token, cert hash, certificate-key —
-written once by `ansible/site.yml`'s play 4, read by every node in play
-5) plus whatever `scripts/vault-apply-wrapper.sh`-style sourcing already
-gives you for Terraform itself (`TF_VAR_proxmox_api_token`,
-`TF_VAR_vm_ssh_public_key`, `TF_VAR_ci_ssh_public_key`).
+This repo has its own Vault KV mount `k8s-lab/` (enabled by
+`scripts/vault-k8s-policy-init.sh`). Everything the bootstrap flow needs
+lives under `k8s-lab/join-keys` (the `kubeadm` token, cert hash,
+certificate-key — written once by `ansible/site.yml`'s play 4, read by
+every node in play 5) and `k8s-lab/config` (control-plane VIP, GitHub
+repo/user/token), plus whatever `scripts/vault-apply-wrapper.sh`-style
+sourcing already gives you for Terraform itself from the base
+`iac-proxmox-lab` paths (`TF_VAR_proxmox_api_token`, `TF_VAR_ssh_public_key`).
 
 `scripts/bootstrap-run.sh` doesn't log into Vault itself — it expects
 `vault login -method=userpass username=<you>` already done in the current
@@ -200,7 +201,7 @@ vault login -method=userpass username=<you>                     # once per token
 
 export CONTROL_PLANE_VIP=10.100.0.10   # keepalived VIP, not one of var.nodes' addresses
 export GITHUB_USER=Tsuyakashi
-export GITHUB_REPO=devops-handbook
+export GITHUB_REPO=k8s-lab
 export GITHUB_TOKEN=<pat with repo scope, for the ArgoCD repo secret>
 
 ./scripts/bootstrap-run.sh

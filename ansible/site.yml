@@ -142,7 +142,7 @@
   hosts: master_primary
   become: true
   vars:
-    vault_kv_url: "{{ vault_addr }}/v1/proxmox/data/k8s-join"
+    vault_kv_url: "{{ vault_addr }}/v1/k8s-lab/data/join-keys"
   tasks:
     - name: Check whether secrets already exist in Vault
       uri:
@@ -202,7 +202,7 @@
   hosts: masters:workers
   become: true
   vars:
-    vault_kv_url: "{{ vault_addr }}/v1/proxmox/data/k8s-join"
+    vault_kv_url: "{{ vault_addr }}/v1/k8s-lab/data/join-keys"
   tasks:
     - name: Fetch join secrets
       uri:

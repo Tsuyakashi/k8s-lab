@@ -16,13 +16,8 @@ variable "proxmox_node" {
   default     = "bare-pve"
 }
 
-variable "vm_ssh_public_key" {
-  description = "SSH public key to inject into every node via cloud-init"
-  type        = string
-}
-
-variable "ci_ssh_public_key" {
-  description = "Public key for CI/CD deploy access"
+variable "ssh_public_key" {
+  description = "SSH public key to inject into every node via cloud-init. Single unified key (was vm_ssh_public_key/ci_ssh_public_key)."
   type        = string
 }
 
